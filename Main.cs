@@ -101,6 +101,8 @@ namespace Flow.Plugin.CommandLauncher
                 string exePath;
                 string arguments = string.Empty;
                 string trimmed = commandCode.Trim();
+
+                // Najpierw sprawdź, czy ścieżka jest w cudzysłowach
                 if (trimmed.StartsWith("\""))
                 {
                     int endQuote = trimmed.IndexOf('"', 1);
@@ -119,19 +121,28 @@ namespace Flow.Plugin.CommandLauncher
                 }
                 else
                 {
-                    int firstSpace = trimmed.IndexOf(' ');
-                    if (firstSpace > 0)
-                    {
-                        exePath = trimmed.Substring(0, firstSpace);
-                        arguments = trimmed.Substring(firstSpace + 1);
-                    }
-                    else
+                    // Jeśli ścieżka nie jest w cudzysłowach, sprawdź czy to plik .exe
+                    if (trimmed.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                     {
                         exePath = trimmed;
                     }
+                    else
+                    {
+                        // Dla innych przypadków, szukamy pierwszej spacji
+                        int firstSpace = trimmed.IndexOf(' ');
+                        if (firstSpace > 0)
+                        {
+                            exePath = trimmed.Substring(0, firstSpace);
+                            arguments = trimmed.Substring(firstSpace + 1);
+                        }
+                        else
+                        {
+                            exePath = trimmed;
+                        }
+                    }
                 }
 
-                // Automatycznie otaczaj ścieżkę cudzysłowami, jeśli zawiera spacje i nie jest już w cudzysłowie
+                // Automatycznie otaczaj ścieżkę cudzysłowami, jeśli zawiera spacje
                 string exePathForCmd = exePath;
                 if (exePathForCmd.Contains(" ") && !(exePathForCmd.StartsWith("\"") && exePathForCmd.EndsWith("\"")))
                 {

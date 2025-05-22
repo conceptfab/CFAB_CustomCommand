@@ -1,9 +1,9 @@
 <UserControl x:Class="Flow.Plugin.CommandLauncher.SettingsControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
-             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
-             mc:Ignorable="d" 
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
              d:DesignHeight="450" d:DesignWidth="600" Margin="10">
     <StackPanel>
         <TextBlock Text="Zarządzanie Skrótami Komend" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
@@ -52,15 +52,17 @@
             <Button Content="Usuń Zaznaczony" Click="RemoveButton_Click" Margin="5" Padding="10,5" IsEnabled="{Binding IsItemSelected}"/>
             <Button Content="Wyczyść Pola" Click="ClearFieldsButton_Click" Margin="5" Padding="10,5"/>
         </StackPanel>
-        
+
         <TextBlock Margin="0,15,0,5" TextWrapping="Wrap">
             <Run Text="Instrukcja:"/>
             <LineBreak/>
             <Run Text="- Klucz: unikalny identyfikator, który wpiszesz po głównym skrócie (np. jeśli główny to 'aa', a klucz to '1', wpiszesz 'aa1')."/>
             <LineBreak/>
-            <Run Text="- Komenda/Ścieżka: pełna ścieżka do pliku .exe, skrótu .lnk lub komenda systemowa (np. C:\Program Files\Notepad++\notepad++.exe, calc, cmd /c echo Hello)."/>
+            <Run Text="- Komenda/Ścieżka: pełna ścieżka do pliku .exe, skrótu .lnk lub komenda systemowa. Ścieżki z spacjami automatycznie otaczane cudzysłowami."/>
+            <LineBreak/>
+            <Run Text="- Przykłady: C:\Program Files\Notepad++\notepad++.exe, calc, cmd /c echo Hello"/>
             <LineBreak/>
             <Run Text="- Opis: krótki opis komendy wyświetlany w wynikach."/>
         </TextBlock>
     </StackPanel>
-</UserControl> 
+</UserControl>
