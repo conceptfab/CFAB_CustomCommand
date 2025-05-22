@@ -129,6 +129,14 @@ namespace Flow.Plugin.CommandLauncher
             var code = EditCode?.Trim() ?? string.Empty;
             var info = EditInfo?.Trim() ?? string.Empty;
 
+            // Walidacja klucza - nie może zawierać białych znaków
+            if (key.Contains(" ") || key.Contains("\t"))
+            {
+                command = new CommandEntry();
+                errorMessage = "Klucz nie może zawierać spacji ani tabulatorów!";
+                return false;
+            }
+
             // Automatyczne dodanie cudzysłowów dla ścieżek ze spacjami
             if (!string.IsNullOrEmpty(code) &&
                 code.Contains(" ") &&
@@ -150,13 +158,38 @@ namespace Flow.Plugin.CommandLauncher
                 return false;
             }
 
-            // Dodatkowa walidacja dla plików
-            if (Path.IsPathRooted(command.Code.Trim('"')))
+            // Rozszerzona walidacja dla plików
+            var cleanCode = command.Code.Trim('"');
+            if (Path.IsPathRooted(cleanCode))
             {
-                var filePath = command.Code.Trim('"');
-                if (!File.Exists(filePath))
+                try
                 {
-                    errorMessage = $"Plik nie istnieje: {filePath}";
+                    if (!File.Exists(cleanCode) && !Directory.Exists(cleanCode))
+                    {
+                        errorMessage = $"Plik lub folder nie istnieje: {cleanCode}";
+                        return false;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    errorMessage = $"Błąd sprawdzania ścieżki: {ex.Message}";
+                    return false;
+                }
+            }
+
+            // Ostrzeżenie dla potencjalnie niebezpiecznych komend
+            var dangerousCommands = new[] { "format", "del", "rd", "rmdir", "deltree" };
+            if (dangerousCommands.Any(cmd => cleanCode.StartsWith(cmd, StringComparison.OrdinalIgnoreCase)))
+            {
+                var result = MessageBox.Show(
+                    "Ta komenda może być potencjalnie niebezpieczna. Czy na pewno chcesz ją dodać?",
+                    "Ostrzeżenie bezpieczeństwa",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+
+                if (result != MessageBoxResult.Yes)
+                {
+                    errorMessage = "Operacja anulowana przez użytkownika";
                     return false;
                 }
             }

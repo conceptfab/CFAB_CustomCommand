@@ -1,109 +1,161 @@
-Poprawki dla CFAB Command Launcher
-1. Main.cs - Funkcja ParseCommand
-Problem: Funkcja niepoprawnie parsuje ścieżki ze spacjami, co powoduje błędy wykonania komend.
-Plik: Main.cs
-Funkcja: ParseCommand
-csharpprivate static (string exePath, string arguments) ParseCommand(string command)
-{
-    command = command.Trim();
+Proponowane poprawki dla CFAB Command Launcher
 
-    // Jeśli ścieżka jest w cudzysłowach
-    if (command.StartsWith("\""))
+1.  Main.cs - Poprawa obsługi ikon w funkcji CreateResult
+    Plik: Main.cs
+    Funkcja: CreateResult
+    Problem: Nieefektywna obsługa ścieżek ikon i potencjalne błędy przy dostępie do plików
+    csharpprivate Result CreateResult(CommandEntry cmd)
     {
-        int endQuote = command.IndexOf('"', 1);
-        if (endQuote > 0)
+    string iconPath = \_iconPath; // Domyślnie używamy ikony wtyczki
+
+        // Próbujemy pobrać ikonę z pliku wykonywalnego
+        try
         {
-            string path = command.Substring(1, endQuote - 1);
-            string args = command.Length > endQuote + 1 ? command.Substring(endQuote + 1).TrimStart() : "";
-            return (path, args);
+            string cleanPath = cmd.Code.Trim('"');
+            // Sprawdź czy to ścieżka bezwzględna i czy plik istnieje
+            if (Path.IsPathRooted(cleanPath) && File.Exists(cleanPath))
+            {
+                iconPath = cleanPath; // Flow Launcher automatycznie pobierze ikonę z pliku
+            }
+            else if (!Path.IsPathRooted(cleanPath))
+            {
+                // Dla komend systemowych spróbuj znaleźć w PATH
+                string fullPath = FindInPath(cleanPath);
+                if (!string.IsNullOrEmpty(fullPath))
+                {
+                    iconPath = fullPath;
+                }
+            }
         }
-    }
-
-    // Sprawdź czy ścieżka zawiera spacje i czy jest to ścieżka do pliku
-    if (command.Contains(" ") && (command.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
-                                command.EndsWith(".bat", StringComparison.OrdinalIgnoreCase) ||
-                                command.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase)))
-    {
-        int lastSpace = command.LastIndexOf(' ');
-        return (command.Substring(0, lastSpace), command.Substring(lastSpace + 1));
-    }
-
-    // Standardowe przetwarzanie
-    int spaceIndex = command.IndexOf(' ');
-    return spaceIndex > 0
-        ? (command.Substring(0, spaceIndex), command.Substring(spaceIndex + 1))
-        : (command, "");
-}
-2. Main.cs - Funkcja ExecuteCommand
-Problem: Niepoprawne wywołanie procesu dla ścieżek ze spacjami.
-Plik: Main.cs
-Funkcja: ExecuteCommand
-csharpprivate bool ExecuteCommand(string commandCode)
-{
-    try
-    {
-        commandCode = Environment.ExpandEnvironmentVariables(commandCode.Trim());
-        _context.API.LogDebug("ExecuteCommand", $"Przetwarzanie: {commandCode}");
-
-        var (exePath, arguments) = ParseCommand(commandCode);
-
-        if (ShouldValidateFile(exePath) && !File.Exists(exePath))
+        catch (Exception ex)
         {
-            throw new FileNotFoundException($"Nie można znaleźć pliku: {exePath}");
+            _context.API.LogDebug("CreateResult", $"Nie można pobrać ikony z pliku: {ex.Message}");
         }
 
-        // Lepsze formatowanie dla cmd.exe
-        var processInfo = new ProcessStartInfo
+        return new Result
         {
-            FileName = exePath,
-            Arguments = arguments,
-            UseShellExecute = true,  // Zmiana na true dla lepszej kompatybilności
-            CreateNoWindow = false
+            Title = $"{cmd.Info} ({cmd.Key})",
+            SubTitle = $"Uruchom: {cmd.Code}",
+            IcoPath = iconPath,
+            Action = _ => ExecuteCommand(cmd.Code)
         };
 
-        // Alternatywne podejście dla plików exe
-        if (exePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-        {
-            processInfo.UseShellExecute = false;
-            processInfo.CreateNoWindow = true;
-        }
+    }
 
-        using var process = Process.Start(processInfo);
-        return true;
+// Nowa funkcja pomocnicza
+private static string FindInPath(string fileName)
+{
+var pathVariable = Environment.GetEnvironmentVariable("PATH");
+if (string.IsNullOrEmpty(pathVariable)) return string.Empty;
+
+    var paths = pathVariable.Split(';');
+    foreach (var path in paths)
+    {
+        try
+        {
+            var fullPath = Path.Combine(path.Trim(), fileName);
+            if (File.Exists(fullPath))
+            {
+                return fullPath;
+            }
+        }
+        catch
+        {
+            // Ignoruj błędy dla nieprawidłowych ścieżek w PATH
+        }
+    }
+    return string.Empty;
+
+} 2. CommandsManager.cs - Poprawa obsługi błędów w funkcji LoadCommands
+Plik: CommandsManager.cs
+Funkcja: LoadCommands
+Problem: Brak sprawdzenia dostępności pliku przed odczytem oraz lepszej obsługi błędów JSON
+csharppublic void LoadCommands()
+{
+try
+{
+if (!File.Exists(\_commandsFilePath))
+{
+Commands = GetDefaultCommands();
+SaveCommands();
+return;
+}
+
+        // Sprawdź czy plik nie jest zablokowany przez inny proces
+        using (var fileStream = new FileStream(_commandsFilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            if (fileStream.Length == 0)
+            {
+                LoadDefaultCommandsWithLog("Plik commands.json jest pusty");
+                return;
+            }
+
+            string json = File.ReadAllText(_commandsFilePath);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                LoadDefaultCommandsWithLog("Plik commands.json zawiera tylko białe znaki");
+                return;
+            }
+
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                AllowTrailingCommas = true
+            };
+
+            Commands = JsonSerializer.Deserialize<List<CommandEntry>>(json, options) ?? new List<CommandEntry>();
+
+            // Filtruj nieprawidłowe wpisy
+            var validCommands = Commands.Where(cmd => cmd.IsValid()).ToList();
+            if (validCommands.Count != Commands.Count)
+            {
+                _context.API.LogWarn(nameof(CommandsManager),
+                    $"Usunięto {Commands.Count - validCommands.Count} nieprawidłowych komend");
+                Commands = validCommands;
+                SaveCommands(); // Zapisz oczyszczoną listę
+            }
+
+            if (Commands.Count == 0)
+            {
+                LoadDefaultCommandsWithLog("Brak prawidłowych komend w pliku");
+            }
+        }
+    }
+    catch (UnauthorizedAccessException ex)
+    {
+        _context.API.LogException(nameof(CommandsManager), "Brak uprawnień do odczytu pliku commands.json", ex);
+        LoadDefaultCommandsWithLog("Brak uprawnień do odczytu pliku");
+    }
+    catch (JsonException ex)
+    {
+        _context.API.LogException(nameof(CommandsManager), $"Błąd struktury JSON: {ex.Message}", ex);
+        LoadDefaultCommandsWithLog($"Nieprawidłowy format JSON: {ex.Message}");
     }
     catch (Exception ex)
     {
-        _context.API.LogException("ExecuteCommand", $"Błąd wykonania: {commandCode}", ex);
-        _context.API.ShowMsg("Błąd", $"Nie można uruchomić: {commandCode}\n{ex.Message}");
-        return false;
+        _context.API.LogException(nameof(CommandsManager), $"Nieoczekiwany błąd wczytywania commands.json: {ex.Message}", ex);
+        LoadDefaultCommandsWithLog($"Nieoczekiwany błąd: {ex.Message}");
     }
-}
-3. CommandsManager.cs - Domyślne komendy
-Problem: Domyślne komendy mogą zawierać ścieżki ze spacjami.
-Plik: CommandsManager.cs
-Funkcja: GetDefaultCommands
-csharpprivate List<CommandEntry> GetDefaultCommands()
-{
-    return new List<CommandEntry>
-    {
-        new CommandEntry("notepad", "notepad.exe", "Uruchom Notatnik"),
-        new CommandEntry("calc", "calc.exe", "Uruchom Kalkulator"),
-        new CommandEntry("cmd", "cmd.exe", "Uruchom Wiersz Poleceń"),
-        new CommandEntry("explorer", "explorer.exe", "Uruchom Eksplorator plików"),
-        new CommandEntry("paint", "mspaint.exe", "Uruchom Paint")
-    };
-}
-4. SettingsControl.xaml.cs - Walidacja ścieżek
-Problem: Brak walidacji ścieżek ze spacjami podczas dodawania komend.
+
+} 3. SettingsControl.xaml.cs - Poprawa walidacji w funkcji TryCreateValidCommand
 Plik: SettingsControl.xaml.cs
 Funkcja: TryCreateValidCommand
+Problem: Brak walidacji dla potencjalnych problemów bezpieczeństwa i lepszej obsługi różnych typów komend
 csharpprivate bool TryCreateValidCommand(out CommandEntry command, out string errorMessage)
 {
-    var key = EditKey?.Trim() ?? string.Empty;
-    var code = EditCode?.Trim() ?? string.Empty;
-    var info = EditInfo?.Trim() ?? string.Empty;
+var key = EditKey?.Trim() ?? string.Empty;
+var code = EditCode?.Trim() ?? string.Empty;
+var info = EditInfo?.Trim() ?? string.Empty;
 
-    // Automatyczne dodanie cudzysłowów dla ścieżek ze spacjami
+    // Walidacja klucza - nie może zawierać białych znaków
+    if (key.Contains(" ") || key.Contains("\t"))
+    {
+        command = new CommandEntry();
+        errorMessage = "Klucz nie może zawierać spacji ani tabulatorów!";
+        return false;
+    }
+
+    // Automatyczne dodanie cudzysłowów dla ścieżek ze spacjami (nie ruszamy tej części)
     if (!string.IsNullOrEmpty(code) &&
         code.Contains(" ") &&
         !code.StartsWith("\"") &&
@@ -124,44 +176,156 @@ csharpprivate bool TryCreateValidCommand(out CommandEntry command, out string er
         return false;
     }
 
-    // Dodatkowa walidacja dla plików
-    if (Path.IsPathRooted(command.Code.Trim('"')))
+    // Rozszerzona walidacja dla plików
+    var cleanCode = command.Code.Trim('"');
+    if (Path.IsPathRooted(cleanCode))
     {
-        var filePath = command.Code.Trim('"');
-        if (!File.Exists(filePath))
+        try
         {
-            errorMessage = $"Plik nie istnieje: {filePath}";
+            if (!File.Exists(cleanCode) && !Directory.Exists(cleanCode))
+            {
+                errorMessage = $"Plik lub folder nie istnieje: {cleanCode}";
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Błąd sprawdzania ścieżki: {ex.Message}";
+            return false;
+        }
+    }
+
+    // Ostrzeżenie dla potencjalnie niebezpiecznych komend
+    var dangerousCommands = new[] { "format", "del", "rd", "rmdir", "deltree" };
+    if (dangerousCommands.Any(cmd => cleanCode.StartsWith(cmd, StringComparison.OrdinalIgnoreCase)))
+    {
+        var result = MessageBox.Show(
+            "Ta komenda może być potencjalnie niebezpieczna. Czy na pewno chcesz ją dodać?",
+            "Ostrzeżenie bezpieczeństwa",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes)
+        {
+            errorMessage = "Operacja anulowana przez użytkownika";
             return false;
         }
     }
 
     return true;
-}
-5. Main.cs - Pomocnicze funkcje
-Nowa funkcja: Dodanie funkcji pomocniczej do lepszego zarządzania ścieżkami.
-Plik: Main.cs
-csharpprivate static string EscapePathForExecution(string path)
+
+} 4. CommandEntry.cs - Dodanie lepszej walidacji
+Plik: CommandEntry.cs
+Funkcja: IsValid i konstruktor
+Problem: Brak walidacji długości i znaków specjalnych
+csharppublic class CommandEntry
 {
-    if (string.IsNullOrEmpty(path)) return path;
+[JsonPropertyName("key")]
+[Required(ErrorMessage = "Klucz jest wymagany")]
+[StringLength(50, ErrorMessage = "Klucz nie może być dłuższy niż 50 znaków")]
+public string Key { get; set; } = string.Empty;
 
-    // Usuń istniejące cudzysłowy i dodaj nowe jeśli ścieżka zawiera spacje
-    path = path.Trim('"');
-    return path.Contains(" ") ? $"\"{path}\"" : path;
+    [JsonPropertyName("code")]
+    [Required(ErrorMessage = "Kod jest wymagany")]
+    [StringLength(500, ErrorMessage = "Kod nie może być dłuższy niż 500 znaków")]
+    public string Code { get; set; } = string.Empty;
+
+    [JsonPropertyName("info")]
+    [StringLength(200, ErrorMessage = "Opis nie może być dłuższy niż 200 znaków")]
+    public string Info { get; set; } = string.Empty;
+
+    // Konstruktor bezparametrowy potrzebny do deserializacji
+    public CommandEntry() { }
+
+    public CommandEntry(string key, string code, string info = "")
+    {
+        Key = key?.Trim() ?? string.Empty;
+        Code = code?.Trim() ?? string.Empty;
+        Info = info?.Trim() ?? string.Empty;
+    }
+
+    // Rozszerzona walidacja
+    public bool IsValid()
+    {
+        if (string.IsNullOrWhiteSpace(Key) || string.IsNullOrWhiteSpace(Code))
+            return false;
+
+        // Sprawdź długość
+        if (Key.Length > 50 || Code.Length > 500 || Info.Length > 200)
+            return false;
+
+        // Sprawdź czy klucz nie zawiera niedozwolonych znaków
+        var invalidChars = new char[] { ' ', '\t', '\n', '\r', '/', '\\', ':', '*', '?', '"', '<', '>', '|' };
+        if (Key.IndexOfAny(invalidChars) >= 0)
+            return false;
+
+        return true;
+    }
+
+    // Nowa metoda do walidacji z szczegółowymi komunikatami
+    public ValidationResult ValidateDetailed()
+    {
+        if (string.IsNullOrWhiteSpace(Key))
+            return new ValidationResult("Klucz jest wymagany");
+
+        if (string.IsNullOrWhiteSpace(Code))
+            return new ValidationResult("Kod jest wymagany");
+
+        if (Key.Length > 50)
+            return new ValidationResult("Klucz nie może być dłuższy niż 50 znaków");
+
+        if (Code.Length > 500)
+            return new ValidationResult("Kod nie może być dłuższy niż 500 znaków");
+
+        if (Info.Length > 200)
+            return new ValidationResult("Opis nie może być dłuższy niż 200 znaków");
+
+        var invalidChars = new char[] { ' ', '\t', '\n', '\r', '/', '\\', ':', '*', '?', '"', '<', '>', '|' };
+        if (Key.IndexOfAny(invalidChars) >= 0)
+            return new ValidationResult("Klucz zawiera niedozwolone znaki");
+
+        return ValidationResult.Success!;
+    }
+
 }
 
-private static bool IsExecutableFile(string path)
+public class ValidationResult
 {
-    if (string.IsNullOrEmpty(path)) return false;
+public bool IsValid { get; }
+public string ErrorMessage { get; }
+public static ValidationResult Success { get; } = new ValidationResult(true, string.Empty);
 
-    var extension = Path.GetExtension(path).ToLowerInvariant();
-    return extension == ".exe" || extension == ".bat" || extension == ".cmd" || extension == ".lnk";
+    public ValidationResult(string errorMessage) : this(false, errorMessage) { }
+
+    private ValidationResult(bool isValid, string errorMessage)
+    {
+        IsValid = isValid;
+        ErrorMessage = errorMessage;
+    }
+
+} 5. plugin.json - Aktualizacja metadanych
+Plik: plugin.json
+Problem: Brak niektórych nowoczesnych właściwości dla Flow Launcher
+json{
+"ID": "73c151c9-3384-4c31-a707-2b256d559c24",
+"ActionKeyword": "aa",
+"Name": "CFAB Command Launcher",
+"Description": "Uruchamia zdefiniowane programy/komendy za pomocą skrótów.",
+"Author": "TwojeImię",
+"Version": "1.0.0",
+"Language": "csharp",
+"Website": "https://github.com/TwojeRepo",
+"IcoPath": "Images\\app.png",
+"ExecuteFileName": "Flow.Plugin.CommandLauncher.dll",
+"SupportedOS": ["Win32NT"],
+"Dependencies": []
 }
-Podsumowanie zmian
+Te poprawki skupiają się na:
 
-Poprawione parsowanie ścieżek - Lepsze rozpoznawanie ścieżek ze spacjami
-Zmienione wykonywanie procesów - Używanie UseShellExecute = true dla lepszej kompatybilności
-Automatyczne dodawanie cudzysłowów - W interfejsie ustawień
-Walidacja plików - Sprawdzanie czy plik istnieje przed dodaniem
-Lepsze domyślne komendy - Używanie komend systemowych bez pełnych ścieżek
+Lepszej obsłudze błędów - bardziej precyzyjne przechwytywanie i logowanie błędów
+Walidacji danych - zapobieganie problemom z nieprawidłowymi danymi wejściowymi
+Bezpieczeństwie - ostrzeżenia przed potencjalnie niebezpiecznymi komendami
+Stabilności - lepsze zarządzanie zasobami i dostępem do plików
+Zgodności - aktualizacja do najnowszych standardów Flow Launcher
 
-Te zmiany powinny rozwiązać problem z wykonywaniem komend zawierających ścieżki ze spacjami, szczególnie dla Cinema 4D i innych aplikacji z podobnymi ścieżkami.
+Wszystkie te zmiany nie wpływają na obsługę ścieżek ze spacjami, która została oznaczona jako kluczowa funkcjonalność do zachowania bez zmian.

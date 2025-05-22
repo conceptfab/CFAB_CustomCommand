@@ -4,6 +4,7 @@ using System.Text.Json; // Używamy System.Text.Json
 using System.Windows; // Dla MessageBox, jeśli potrzebne
 using Flow.Launcher.Plugin;
 using System.Threading;
+using System.Linq;
 
 namespace Flow.Plugin.CommandLauncher
 {
@@ -43,24 +44,60 @@ namespace Flow.Plugin.CommandLauncher
                     return;
                 }
 
-                string json = File.ReadAllText(_commandsFilePath);
-                if (string.IsNullOrWhiteSpace(json))
+                // Sprawdź czy plik nie jest zablokowany przez inny proces
+                using (var fileStream = new FileStream(_commandsFilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
                 {
-                    LoadDefaultCommandsWithLog("Plik commands.json jest pusty");
-                    return;
-                }
+                    if (fileStream.Length == 0)
+                    {
+                        LoadDefaultCommandsWithLog("Plik commands.json jest pusty");
+                        return;
+                    }
 
-                Commands = JsonSerializer.Deserialize<List<CommandEntry>>(json) ?? new List<CommandEntry>();
+                    string json = File.ReadAllText(_commandsFilePath);
+                    if (string.IsNullOrWhiteSpace(json))
+                    {
+                        LoadDefaultCommandsWithLog("Plik commands.json zawiera tylko białe znaki");
+                        return;
+                    }
 
-                if (Commands.Count == 0)
-                {
-                    LoadDefaultCommandsWithLog("Brak komend w pliku");
+                    var options = new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true,
+                        AllowTrailingCommas = true
+                    };
+
+                    Commands = JsonSerializer.Deserialize<List<CommandEntry>>(json, options) ?? new List<CommandEntry>();
+
+                    // Filtruj nieprawidłowe wpisy
+                    var validCommands = Commands.Where(cmd => cmd.IsValid()).ToList();
+                    if (validCommands.Count != Commands.Count)
+                    {
+                        _context.API.LogWarn(nameof(CommandsManager),
+                            $"Usunięto {Commands.Count - validCommands.Count} nieprawidłowych komend");
+                        Commands = validCommands;
+                        SaveCommands(); // Zapisz oczyszczoną listę
+                    }
+
+                    if (Commands.Count == 0)
+                    {
+                        LoadDefaultCommandsWithLog("Brak prawidłowych komend w pliku");
+                    }
                 }
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _context.API.LogException(nameof(CommandsManager), "Brak uprawnień do odczytu pliku commands.json", ex);
+                LoadDefaultCommandsWithLog("Brak uprawnień do odczytu pliku");
+            }
+            catch (JsonException ex)
+            {
+                _context.API.LogException(nameof(CommandsManager), $"Błąd struktury JSON: {ex.Message}", ex);
+                LoadDefaultCommandsWithLog($"Nieprawidłowy format JSON: {ex.Message}");
             }
             catch (Exception ex)
             {
-                _context.API.LogException(nameof(CommandsManager), $"Błąd wczytywania commands.json: {ex.Message}", ex);
-                LoadDefaultCommandsWithLog($"Błąd deserializacji: {ex.Message}");
+                _context.API.LogException(nameof(CommandsManager), $"Nieoczekiwany błąd wczytywania commands.json: {ex.Message}", ex);
+                LoadDefaultCommandsWithLog($"Nieoczekiwany błąd: {ex.Message}");
             }
         }
 

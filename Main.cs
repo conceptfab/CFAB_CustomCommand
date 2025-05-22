@@ -68,9 +68,19 @@ namespace Flow.Plugin.CommandLauncher
             try
             {
                 string cleanPath = cmd.Code.Trim('"');
-                if (File.Exists(cleanPath))
+                // Sprawdź czy to ścieżka bezwzględna i czy plik istnieje
+                if (Path.IsPathRooted(cleanPath) && File.Exists(cleanPath))
                 {
                     iconPath = cleanPath; // Flow Launcher automatycznie pobierze ikonę z pliku
+                }
+                else if (!Path.IsPathRooted(cleanPath))
+                {
+                    // Dla komend systemowych spróbuj znaleźć w PATH
+                    string fullPath = FindInPath(cleanPath);
+                    if (!string.IsNullOrEmpty(fullPath))
+                    {
+                        iconPath = fullPath;
+                    }
                 }
             }
             catch (Exception ex)
@@ -85,6 +95,31 @@ namespace Flow.Plugin.CommandLauncher
                 IcoPath = iconPath,
                 Action = _ => ExecuteCommand(cmd.Code)
             };
+        }
+
+        // Nowa funkcja pomocnicza
+        private static string FindInPath(string fileName)
+        {
+            var pathVariable = Environment.GetEnvironmentVariable("PATH");
+            if (string.IsNullOrEmpty(pathVariable)) return string.Empty;
+
+            var paths = pathVariable.Split(';');
+            foreach (var path in paths)
+            {
+                try
+                {
+                    var fullPath = Path.Combine(path.Trim(), fileName);
+                    if (File.Exists(fullPath))
+                    {
+                        return fullPath;
+                    }
+                }
+                catch
+                {
+                    // Ignoruj błędy dla nieprawidłowych ścieżek w PATH
+                }
+            }
+            return string.Empty;
         }
 
         private bool ExecuteCommand(string commandCode)

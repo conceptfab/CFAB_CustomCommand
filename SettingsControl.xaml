@@ -4,13 +4,72 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d"
-             d:DesignHeight="450" d:DesignWidth="600" Margin="10">
+             d:DesignHeight="450" d:DesignWidth="600" Margin="10"
+             Background="{DynamicResource Color01B}">
+    <UserControl.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource Color05B}"/>
+        </Style>
+        <Style TargetType="Label">
+            <Setter Property="Foreground" Value="{DynamicResource Color05B}"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{DynamicResource Color01B}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Color05B}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SystemThemeBorder}"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource Color01B}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Color05B}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SystemThemeBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#FF232323"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="#FF191919"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#FF2A2A2A"/>
+                    <Setter Property="Foreground" Value="#FF666666"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="{DynamicResource Color01B}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Color05B}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SystemThemeBorder}"/>
+            <Setter Property="RowBackground" Value="{DynamicResource Color01B}"/>
+            <Setter Property="AlternatingRowBackground" Value="{DynamicResource SystemThemeBorder}"/>
+        </Style>
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="{DynamicResource Color01B}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Color05B}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SystemThemeBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#FF232323"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
     <StackPanel>
         <TextBlock Text="Zarządzanie Skrótami Komend" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
 
         <DataGrid x:Name="CommandsDataGrid" AutoGenerateColumns="False" CanUserAddRows="False"
                   ItemsSource="{Binding Commands}" SelectedItem="{Binding SelectedCommand}"
-                  Height="200" Margin="0,0,0,10" IsReadOnly="True" SelectionMode="Single">
+                  Height="200" Margin="0,0,0,10" IsReadOnly="True" SelectionMode="Single"
+                  GridLinesVisibility="Horizontal" BorderThickness="1">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Klucz (np. 1, c)" Binding="{Binding Key}" Width="Auto"/>
                 <DataGridTextColumn Header="Komenda/Ścieżka" Binding="{Binding Code}" Width="*"/>
@@ -47,10 +106,10 @@
         </Grid>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-            <Button Content="Dodaj Nowy" Click="AddButton_Click" Margin="5" Padding="10,5"/>
-            <Button Content="Zapisz Zmiany (Edycja)" Click="SaveEditButton_Click" Margin="5" Padding="10,5" IsEnabled="{Binding IsItemSelected}"/>
-            <Button Content="Usuń Zaznaczony" Click="RemoveButton_Click" Margin="5" Padding="10,5" IsEnabled="{Binding IsItemSelected}"/>
-            <Button Content="Wyczyść Pola" Click="ClearFieldsButton_Click" Margin="5" Padding="10,5"/>
+            <Button Content="Dodaj Nowy" Click="AddButton_Click"/>
+            <Button Content="Zapisz Zmiany" Click="SaveEditButton_Click" IsEnabled="{Binding IsItemSelected}"/>
+            <Button Content="Usuń Zaznaczony" Click="RemoveButton_Click" IsEnabled="{Binding IsItemSelected}"/>
+            <Button Content="Wyczyść Pola" Click="ClearFieldsButton_Click"/>
         </StackPanel>
 
         <TextBlock Margin="0,15,0,5" TextWrapping="Wrap">

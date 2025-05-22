@@ -8,5 +8,7 @@
   "Language": "csharp",
   "Website": "https://github.com/TwojeRepo",
   "IcoPath": "Images\\app.png",
-  "ExecuteFileName": "Flow.Plugin.CommandLauncher.dll"
+  "ExecuteFileName": "Flow.Plugin.CommandLauncher.dll",
+  "SupportedOS": ["Win32NT"],
+  "Dependencies": []
 }
