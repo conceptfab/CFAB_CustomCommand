@@ -29,162 +29,134 @@ namespace Flow.Plugin.CommandLauncher
         public List<Result> Query(Query query)
         {
             var results = new List<Result>();
-            string searchQuery = query.Search; // To co użytkownik wpisał po "aa"
+            string searchQuery = query.Search.Trim();
 
-            if (string.IsNullOrWhiteSpace(searchQuery))
+            if (string.IsNullOrEmpty(searchQuery))
             {
-                // Pokaż wszystkie dostępne komendy, jeśli nic nie wpisano po "aa"
-                foreach (var cmd in _commandsManager.Commands)
-                {
-                    results.Add(new Result
-                    {
-                        Title = $"{cmd.Info} ({cmd.Key})",
-                        SubTitle = $"Uruchom: {cmd.Code}",
-                        IcoPath = _iconPath, // Możesz tu ustawić specyficzną ikonę dla każdej komendy
-                        Action = c => ExecuteCommand(cmd.Code)
-                    });
-                }
+                // Użyj LINQ dla lepszej czytelności
+                return _commandsManager.Commands.Select(cmd => CreateResult(cmd)).ToList();
             }
-            else
+
+            // Najpierw dokładne dopasowanie
+            var exactMatch = _commandsManager.Commands.FirstOrDefault(cmd =>
+                cmd.Key.Equals(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+            if (exactMatch != null)
             {
-                // Filtruj komendy na podstawie wpisanego podklucza
-                var matchedCommand = _commandsManager.Commands.FirstOrDefault(cmd =>
-                    cmd.Key.Equals(searchQuery, StringComparison.OrdinalIgnoreCase));
+                results.Add(CreateResult(exactMatch));
+            }
 
-                if (matchedCommand != null)
-                {
-                    results.Add(new Result
-                    {
-                        Title = matchedCommand.Info,
-                        SubTitle = $"Uruchom: {matchedCommand.Code} (po wpisaniu '{_context.CurrentPluginMetadata.ActionKeyword}{matchedCommand.Key}')",
-                        IcoPath = _iconPath,
-                        Action = c => ExecuteCommand(matchedCommand.Code)
-                    });
-                }
-                else
-                {
-                    // Opcjonalnie: pokaż pasujące częściowo lub zasugeruj dodanie nowej
-                    var partialMatches = _commandsManager.Commands.Where(cmd =>
-                        cmd.Key.StartsWith(searchQuery, StringComparison.OrdinalIgnoreCase) ||
-                        cmd.Info.IndexOf(searchQuery, StringComparison.OrdinalIgnoreCase) >= 0)
-                        .ToList();
+            // Następnie częściowe dopasowania (tylko jeśli nie ma dokładnego)
+            if (results.Count == 0)
+            {
+                var partialMatches = _commandsManager.Commands
+                    .Where(cmd => cmd.Key.StartsWith(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                                 cmd.Info.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+                    .Select(CreateResult);
 
-                    foreach (var cmd in partialMatches)
-                    {
-                         results.Add(new Result
-                        {
-                            Title = $"{cmd.Info} ({cmd.Key})",
-                            SubTitle = $"Uruchom: {cmd.Code}",
-                            IcoPath = _iconPath,
-                            Action = c => ExecuteCommand(cmd.Code)
-                        });
-                    }
-                }
+                results.AddRange(partialMatches);
             }
 
             return results;
+        }
+
+        private Result CreateResult(CommandEntry cmd)
+        {
+            return new Result
+            {
+                Title = $"{cmd.Info} ({cmd.Key})",
+                SubTitle = $"Uruchom: {cmd.Code}",
+                IcoPath = _iconPath,
+                Action = _ => ExecuteCommand(cmd.Code)
+            };
         }
 
         private bool ExecuteCommand(string commandCode)
         {
             try
             {
-                if (commandCode.Contains("%"))
+                commandCode = Environment.ExpandEnvironmentVariables(commandCode.Trim());
+                _context.API.LogDebug("ExecuteCommand", $"Przetwarzanie: {commandCode}");
+
+                var (exePath, arguments) = ParseCommand(commandCode);
+
+                if (ShouldValidateFile(exePath) && !File.Exists(exePath))
                 {
-                    // Obsługa zmiennych środowiskowych
-                    commandCode = Environment.ExpandEnvironmentVariables(commandCode);
+                    throw new FileNotFoundException($"Nie można znaleźć pliku: {exePath}");
                 }
 
-                _context.API.LogDebug("ExecuteCommand", $"Przetwarzanie komendy: {commandCode}");
-
-                // Rozdziel ścieżkę i argumenty zgodnie z zasadami Windows
-                string exePath;
-                string arguments = string.Empty;
-                string trimmed = commandCode.Trim();
-
-                // Najpierw sprawdź, czy ścieżka jest w cudzysłowach
-                if (trimmed.StartsWith("\""))
-                {
-                    int endQuote = trimmed.IndexOf('"', 1);
-                    if (endQuote > 0)
-                    {
-                        exePath = trimmed.Substring(1, endQuote - 1);
-                        if (trimmed.Length > endQuote + 1)
-                        {
-                            arguments = trimmed.Substring(endQuote + 1).TrimStart();
-                        }
-                    }
-                    else
-                    {
-                        exePath = trimmed; // nieprawidłowa składnia, ale próbujemy całość
-                    }
-                }
-                else
-                {
-                    // Jeśli ścieżka nie jest w cudzysłowach, sprawdź czy to plik .exe
-                    if (trimmed.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                    {
-                        exePath = trimmed;
-                    }
-                    else
-                    {
-                        // Dla innych przypadków, szukamy pierwszej spacji
-                        int firstSpace = trimmed.IndexOf(' ');
-                        if (firstSpace > 0)
-                        {
-                            exePath = trimmed.Substring(0, firstSpace);
-                            arguments = trimmed.Substring(firstSpace + 1);
-                        }
-                        else
-                        {
-                            exePath = trimmed;
-                        }
-                    }
-                }
-
-                // Automatycznie otaczaj ścieżkę cudzysłowami, jeśli zawiera spacje
-                string exePathForCmd = exePath;
-                if (exePathForCmd.Contains(" ") && !(exePathForCmd.StartsWith("\"") && exePathForCmd.EndsWith("\"")))
-                {
-                    exePathForCmd = $"\"{exePathForCmd}\"";
-                }
-                string cmdToRun = string.IsNullOrEmpty(arguments) ? exePathForCmd : $"{exePathForCmd} {arguments}";
-
-                // Sprawdź czy to program systemowy
-                bool isSystemCommand = exePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
-                                     !Path.IsPathRooted(exePath) &&
-                                     !exePath.Contains("\\") &&
-                                     !exePath.Contains("/");
-
-                if (!isSystemCommand && Path.IsPathRooted(exePath))
-                {
-                    if (!File.Exists(exePath))
-                    {
-                        _context.API.LogException("ExecuteCommand", $"Plik nie istnieje: {exePath}", new FileNotFoundException($"Nie można znaleźć pliku: {exePath}"));
-                        throw new FileNotFoundException($"Nie można znaleźć pliku: {exePath}");
-                    }
-                    _context.API.LogDebug("ExecuteCommand", $"Plik istnieje: {exePath}");
-                }
-
-                // Użyj cmd.exe do uruchomienia komendy
-                var startInfo = new ProcessStartInfo
+                var processInfo = new ProcessStartInfo
                 {
                     FileName = "cmd.exe",
-                    Arguments = $"/c start \"\" {cmdToRun}",
+                    Arguments = $"/c start \"\" {FormatCommandForExecution(exePath, arguments)}",
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
 
-                _context.API.LogDebug("ExecuteCommand", $"Uruchamianie procesu: cmd.exe /c start \"\" {cmdToRun}");
-                Process.Start(startInfo);
+                using var process = Process.Start(processInfo);
                 return true;
             }
             catch (Exception ex)
             {
-                _context.API.LogException("ExecuteCommand", $"Nie można uruchomić: {commandCode}", ex);
-                _context.API.ShowMsg("Błąd wykonania komendy", $"Nie można uruchomić: {commandCode}\nBłąd: {ex.Message}");
+                _context.API.LogException("ExecuteCommand", $"Błąd wykonania: {commandCode}", ex);
+                _context.API.ShowMsg("Błąd", $"Nie można uruchomić: {commandCode}\n{ex.Message}");
                 return false;
             }
+        }
+
+        private static (string exePath, string arguments) ParseCommand(string command)
+        {
+            command = command.Trim();
+
+            // Jeśli ścieżka jest w cudzysłowach
+            if (command.StartsWith("\""))
+            {
+                int endQuote = command.IndexOf('"', 1);
+                if (endQuote > 0)
+                {
+                    string path = command.Substring(1, endQuote - 1);
+                    string args = command.Length > endQuote + 1 ? command.Substring(endQuote + 1).TrimStart() : "";
+                    return (path, args);
+                }
+            }
+
+            // Sprawdź czy ścieżka zawiera spacje i czy jest to ścieżka do pliku
+            if (command.Contains(" ") && (command.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+                                        command.EndsWith(".bat", StringComparison.OrdinalIgnoreCase) ||
+                                        command.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase)))
+            {
+                int lastSpace = command.LastIndexOf(' ');
+                return (command.Substring(0, lastSpace), command.Substring(lastSpace + 1));
+            }
+
+            // Standardowe przetwarzanie
+            int spaceIndex = command.IndexOf(' ');
+            return spaceIndex > 0
+                ? (command.Substring(0, spaceIndex), command.Substring(spaceIndex + 1))
+                : (command, "");
+        }
+
+        private static string FormatCommandForExecution(string exePath, string arguments)
+        {
+            string formattedPath = exePath.Contains(" ") && !exePath.StartsWith("\"")
+                ? $"\"{exePath}\""
+                : exePath;
+
+            return string.IsNullOrEmpty(arguments) ? formattedPath : $"{formattedPath} {arguments}";
+        }
+
+        private static bool ShouldValidateFile(string exePath)
+        {
+            return Path.IsPathRooted(exePath) &&
+                   !IsSystemCommand(exePath);
+        }
+
+        private static bool IsSystemCommand(string exePath)
+        {
+            return exePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
+                   !Path.IsPathRooted(exePath) &&
+                   !exePath.Contains('\\') &&
+                   !exePath.Contains('/');
         }
 
         // Implementacja ISettingProvider

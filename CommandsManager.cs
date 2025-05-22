@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json; // Używamy System.Text.Json
 using System.Windows; // Dla MessageBox, jeśli potrzebne
 using Flow.Launcher.Plugin;
+using System.Threading;
 
 namespace Flow.Plugin.CommandLauncher
 {
@@ -33,78 +34,75 @@ namespace Flow.Plugin.CommandLauncher
 
         public void LoadCommands()
         {
-            if (File.Exists(_commandsFilePath))
+            try
             {
-                try
+                if (!File.Exists(_commandsFilePath))
                 {
-                    string json = File.ReadAllText(_commandsFilePath);
-                    if (string.IsNullOrWhiteSpace(json))
-                    {
-                        _context.API.LogWarn(nameof(CommandsManager), "Plik commands.json jest pusty, ładowanie domyślnych komend");
-                        Commands = GetDefaultCommands();
-                        SaveCommands();
-                        return;
-                    }
-
-                    var deserializedCommands = JsonSerializer.Deserialize<List<CommandEntry>>(json);
-                    Commands = deserializedCommands ?? new List<CommandEntry>();
-
-                    if (Commands.Count == 0)
-                    {
-                        _context.API.LogWarn(nameof(CommandsManager), "Brak komend w pliku, ładowanie domyślnych");
-                        Commands = GetDefaultCommands();
-                        SaveCommands();
-                    }
-                }
-                catch (JsonException ex)
-                {
-                    _context.API.LogException(nameof(CommandsManager), $"Błąd deserializacji pliku commands.json: {ex.Message}", ex);
                     Commands = GetDefaultCommands();
                     SaveCommands();
+                    return;
                 }
-                catch (IOException ex)
+
+                string json = File.ReadAllText(_commandsFilePath);
+                if (string.IsNullOrWhiteSpace(json))
                 {
-                    _context.API.LogException(nameof(CommandsManager), $"Błąd IO podczas wczytywania commands.json: {ex.Message}", ex);
-                    Commands = GetDefaultCommands();
+                    LoadDefaultCommandsWithLog("Plik commands.json jest pusty");
+                    return;
                 }
-                catch (Exception ex)
+
+                Commands = JsonSerializer.Deserialize<List<CommandEntry>>(json) ?? new List<CommandEntry>();
+
+                if (Commands.Count == 0)
                 {
-                    _context.API.LogException(nameof(CommandsManager), $"Nieoczekiwany błąd podczas wczytywania commands.json: {ex.Message}", ex);
-                    Commands = GetDefaultCommands();
+                    LoadDefaultCommandsWithLog("Brak komend w pliku");
                 }
             }
-            else
+            catch (Exception ex)
             {
-                Commands = GetDefaultCommands();
-                SaveCommands();
+                _context.API.LogException(nameof(CommandsManager), $"Błąd wczytywania commands.json: {ex.Message}", ex);
+                LoadDefaultCommandsWithLog($"Błąd deserializacji: {ex.Message}");
             }
+        }
+
+        private void LoadDefaultCommandsWithLog(string reason)
+        {
+            _context.API.LogWarn(nameof(CommandsManager), $"{reason}, ładowanie domyślnych komend");
+            Commands = GetDefaultCommands();
+            SaveCommands();
         }
 
         public void SaveCommands()
         {
-            try
+            const int maxRetries = 3;
+            for (int retry = 0; retry < maxRetries; retry++)
             {
-                EnsureDataDirectoryExists();
-
-                string json = JsonSerializer.Serialize(Commands, new JsonSerializerOptions
+                try
                 {
-                    WriteIndented = true
-                });
+                    EnsureDataDirectoryExists();
 
-                // Najpierw zapisz do pliku tymczasowego, a następnie zastąp oryginalny
-                string tempFilePath = _commandsFilePath + ".tmp";
-                File.WriteAllText(tempFilePath, json);
+                    var options = new JsonSerializerOptions { WriteIndented = true };
+                    string json = JsonSerializer.Serialize(Commands, options);
 
-                if (File.Exists(_commandsFilePath))
-                {
-                    File.Delete(_commandsFilePath);
+                    string tempFilePath = $"{_commandsFilePath}.tmp";
+                    File.WriteAllText(tempFilePath, json);
+
+                    // Atomowe zastąpienie pliku
+                    if (File.Exists(_commandsFilePath))
+                        File.Replace(tempFilePath, _commandsFilePath, null);
+                    else
+                        File.Move(tempFilePath, _commandsFilePath);
+
+                    return; // Sukces
                 }
-
-                File.Move(tempFilePath, _commandsFilePath);
-            }
-            catch (Exception ex)
-            {
-                _context.API.LogException(nameof(CommandsManager), $"Błąd zapisu pliku commands.json: {ex.Message}", ex);
+                catch (Exception ex) when (retry < maxRetries - 1)
+                {
+                    _context.API.LogWarn(nameof(CommandsManager), $"Próba zapisu {retry + 1} nieudana: {ex.Message}");
+                    Thread.Sleep(100); // Krótkie opóźnienie przed ponowną próbą
+                }
+                catch (Exception ex)
+                {
+                    _context.API.LogException(nameof(CommandsManager), $"Błąd zapisu po {maxRetries} próbach: {ex.Message}", ex);
+                }
             }
         }
 

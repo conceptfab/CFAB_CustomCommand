@@ -24,31 +24,14 @@ namespace Flow.Plugin.CommandLauncher
         // Konstruktor bezparametrowy potrzebny do deserializacji
         public CommandEntry() { }
 
-        public CommandEntry(string key, string code, string info)
+        public CommandEntry(string key, string code, string info = "")
         {
             Key = key?.Trim() ?? string.Empty;
             Code = code?.Trim() ?? string.Empty;
             Info = info?.Trim() ?? string.Empty;
         }
 
-        // Metoda walidacji
-        public bool IsValid(out string errorMessage)
-        {
-            errorMessage = string.Empty;
-
-            if (string.IsNullOrWhiteSpace(Key))
-            {
-                errorMessage = "Klucz nie może być pusty";
-                return false;
-            }
-
-            if (string.IsNullOrWhiteSpace(Code))
-            {
-                errorMessage = "Kod nie może być pusty";
-                return false;
-            }
-
-            return true;
-        }
+        // Uproszczona walidacja używająca wbudowanych atrybutów
+        public bool IsValid() => !string.IsNullOrWhiteSpace(Key) && !string.IsNullOrWhiteSpace(Code);
     }
 }

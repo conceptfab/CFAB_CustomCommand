@@ -104,21 +104,15 @@ namespace Flow.Plugin.CommandLauncher
 
         private void AddButton_Click(object sender, RoutedEventArgs e)
         {
-            if (!ValidateInput())
+            if (!TryCreateValidCommand(out var newCommand, out var errorMessage))
             {
+                ShowError(errorMessage);
                 return;
             }
 
-            var newCommand = new CommandEntry
+            if (CommandExists(newCommand.Key))
             {
-                Key = EditKey.Trim(),
-                Code = EditCode.Trim(),
-                Info = EditInfo.Trim()
-            };
-
-            if (_commands.Any(c => c.Key.Equals(newCommand.Key, StringComparison.OrdinalIgnoreCase)))
-            {
-                MessageBox.Show($"Komenda o kluczu '{newCommand.Key}' już istnieje!", "Błąd", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ShowError($"Komenda o kluczu '{newCommand.Key}' już istnieje!");
                 return;
             }
 
@@ -127,24 +121,26 @@ namespace Flow.Plugin.CommandLauncher
             ClearFields();
         }
 
-        private bool ValidateInput()
+        private bool TryCreateValidCommand(out CommandEntry command, out string errorMessage)
         {
-            if (string.IsNullOrWhiteSpace(EditKey))
-            {
-                MessageBox.Show("Klucz jest wymagany!", "Błąd", MessageBoxButton.OK, MessageBoxImage.Warning);
-                KeyTextBox.Focus();
-                return false;
-            }
+            command = new CommandEntry(EditKey, EditCode, EditInfo);
+            errorMessage = "";
 
-            if (string.IsNullOrWhiteSpace(EditCode))
+            if (!command.IsValid())
             {
-                MessageBox.Show("Komenda/Ścieżka jest wymagana!", "Błąd", MessageBoxButton.OK, MessageBoxImage.Warning);
-                CodeTextBox.Focus();
+                errorMessage = string.IsNullOrWhiteSpace(command.Key) ?
+                    "Klucz jest wymagany!" : "Komenda/Ścieżka jest wymagana!";
                 return false;
             }
 
             return true;
         }
+
+        private bool CommandExists(string key) =>
+            Commands.Any(c => c.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+
+        private void ShowError(string message) =>
+            MessageBox.Show(message, "Błąd", MessageBoxButton.OK, MessageBoxImage.Warning);
 
         private void SaveEditButton_Click(object sender, RoutedEventArgs e)
         {
