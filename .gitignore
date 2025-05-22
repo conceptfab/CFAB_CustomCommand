@@ -1,0 +1,11 @@
+# build
+lib/
+build/
+
+# python cache
+__pycache__/
+.mypy_cache/
+
+# .NET build folders
+obj/
+bin/

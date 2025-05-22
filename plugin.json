@@ -1,0 +1,12 @@
+{
+  "ID": "73c151c9-3384-4c31-a707-2b256d559c24",
+  "ActionKeyword": "aa",
+  "Name": "CFAB Command Launcher",
+  "Description": "Uruchamia zdefiniowane programy/komendy za pomocą skrótów.",
+  "Author": "TwojeImię",
+  "Version": "1.0.0",
+  "Language": "csharp",
+  "Website": "https://github.com/TwojeRepo",
+  "IcoPath": "Images\\app.png",
+  "ExecuteFileName": "Flow.Plugin.CommandLauncher.dll"
+}

@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CFAB_Command_Launcher", "CFAB_Command_Launcher.csproj", "{BF35DEC8-F00B-CED3-CD27-5AB15E6F736A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BF35DEC8-F00B-CED3-CD27-5AB15E6F736A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BF35DEC8-F00B-CED3-CD27-5AB15E6F736A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BF35DEC8-F00B-CED3-CD27-5AB15E6F736A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BF35DEC8-F00B-CED3-CD27-5AB15E6F736A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {89FF258C-1E0C-4532-B33F-AC2219F3E1F2}
+	EndGlobalSection
+EndGlobal
