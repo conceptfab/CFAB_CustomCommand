@@ -1,127 +1,43 @@
-Analiza projektu CFAB Command Launcher - Optymalizacje i Poprawki
-Po przeanalizowaniu projektu Flow Launcher plugin, znalazłem kilka obszarów wymagających optymalizacji i poprawek:
-1. CommandsManager.cs - Optymalizacje zarządzania plikami
-Funkcja LoadCommands() - Uproszczenie obsługi błędów
-csharppublic void LoadCommands()
+Poprawki dla CFAB Command Launcher
+1. Main.cs - Funkcja ParseCommand
+Problem: Funkcja niepoprawnie parsuje ścieżki ze spacjami, co powoduje błędy wykonania komend.
+Plik: Main.cs
+Funkcja: ParseCommand
+csharpprivate static (string exePath, string arguments) ParseCommand(string command)
 {
-    try
+    command = command.Trim();
+
+    // Jeśli ścieżka jest w cudzysłowach
+    if (command.StartsWith("\""))
     {
-        if (!File.Exists(_commandsFilePath))
+        int endQuote = command.IndexOf('"', 1);
+        if (endQuote > 0)
         {
-            Commands = GetDefaultCommands();
-            SaveCommands();
-            return;
-        }
-
-        string json = File.ReadAllText(_commandsFilePath);
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            LoadDefaultCommandsWithLog("Plik commands.json jest pusty");
-            return;
-        }
-
-        Commands = JsonSerializer.Deserialize<List<CommandEntry>>(json) ?? new List<CommandEntry>();
-
-        if (Commands.Count == 0)
-        {
-            LoadDefaultCommandsWithLog("Brak komend w pliku");
+            string path = command.Substring(1, endQuote - 1);
+            string args = command.Length > endQuote + 1 ? command.Substring(endQuote + 1).TrimStart() : "";
+            return (path, args);
         }
     }
-    catch (Exception ex)
+
+    // Sprawdź czy ścieżka zawiera spacje i czy jest to ścieżka do pliku
+    if (command.Contains(" ") && (command.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+                                command.EndsWith(".bat", StringComparison.OrdinalIgnoreCase) ||
+                                command.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase)))
     {
-        _context.API.LogException(nameof(CommandsManager), $"Błąd wczytywania commands.json: {ex.Message}", ex);
-        LoadDefaultCommandsWithLog($"Błąd deserializacji: {ex.Message}");
+        int lastSpace = command.LastIndexOf(' ');
+        return (command.Substring(0, lastSpace), command.Substring(lastSpace + 1));
     }
+
+    // Standardowe przetwarzanie
+    int spaceIndex = command.IndexOf(' ');
+    return spaceIndex > 0
+        ? (command.Substring(0, spaceIndex), command.Substring(spaceIndex + 1))
+        : (command, "");
 }
-
-private void LoadDefaultCommandsWithLog(string reason)
-{
-    _context.API.LogWarn(nameof(CommandsManager), $"{reason}, ładowanie domyślnych komend");
-    Commands = GetDefaultCommands();
-    SaveCommands();
-}
-Funkcja SaveCommands() - Lepsze zabezpieczenie przed utratą danych
-csharppublic void SaveCommands()
-{
-    const int maxRetries = 3;
-    for (int retry = 0; retry < maxRetries; retry++)
-    {
-        try
-        {
-            EnsureDataDirectoryExists();
-
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            string json = JsonSerializer.Serialize(Commands, options);
-
-            string tempFilePath = $"{_commandsFilePath}.tmp";
-            File.WriteAllText(tempFilePath, json);
-
-            // Atomowe zastąpienie pliku
-            if (File.Exists(_commandsFilePath))
-                File.Replace(tempFilePath, _commandsFilePath, null);
-            else
-                File.Move(tempFilePath, _commandsFilePath);
-
-            return; // Sukces
-        }
-        catch (Exception ex) when (retry < maxRetries - 1)
-        {
-            _context.API.LogWarn(nameof(CommandsManager), $"Próba zapisu {retry + 1} nieudana: {ex.Message}");
-            Thread.Sleep(100); // Krótkie opóźnienie przed ponowną próbą
-        }
-        catch (Exception ex)
-        {
-            _context.API.LogException(nameof(CommandsManager), $"Błąd zapisu po {maxRetries} próbach: {ex.Message}", ex);
-        }
-    }
-}
-2. Main.cs - Optymalizacje wyszukiwania i wykonywania
-Funkcja Query() - Poprawa wydajności wyszukiwania
-csharppublic List<Result> Query(Query query)
-{
-    var results = new List<Result>();
-    string searchQuery = query.Search.Trim();
-
-    if (string.IsNullOrEmpty(searchQuery))
-    {
-        // Użyj LINQ dla lepszej czytelności
-        return _commandsManager.Commands.Select(cmd => CreateResult(cmd)).ToList();
-    }
-
-    // Najpierw dokładne dopasowanie
-    var exactMatch = _commandsManager.Commands.FirstOrDefault(cmd =>
-        cmd.Key.Equals(searchQuery, StringComparison.OrdinalIgnoreCase));
-
-    if (exactMatch != null)
-    {
-        results.Add(CreateResult(exactMatch));
-    }
-
-    // Następnie częściowe dopasowania (tylko jeśli nie ma dokładnego)
-    if (results.Count == 0)
-    {
-        var partialMatches = _commandsManager.Commands
-            .Where(cmd => cmd.Key.StartsWith(searchQuery, StringComparison.OrdinalIgnoreCase) ||
-                         cmd.Info.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
-            .Select(CreateResult);
-
-        results.AddRange(partialMatches);
-    }
-
-    return results;
-}
-
-private Result CreateResult(CommandEntry cmd)
-{
-    return new Result
-    {
-        Title = $"{cmd.Info} ({cmd.Key})",
-        SubTitle = $"Uruchom: {cmd.Code}",
-        IcoPath = _iconPath,
-        Action = _ => ExecuteCommand(cmd.Code)
-    };
-}
-Funkcja ExecuteCommand() - Uproszczenie parsowania ścieżek
+2. Main.cs - Funkcja ExecuteCommand
+Problem: Niepoprawne wywołanie procesu dla ścieżek ze spacjami.
+Plik: Main.cs
+Funkcja: ExecuteCommand
 csharpprivate bool ExecuteCommand(string commandCode)
 {
     try
@@ -136,13 +52,21 @@ csharpprivate bool ExecuteCommand(string commandCode)
             throw new FileNotFoundException($"Nie można znaleźć pliku: {exePath}");
         }
 
+        // Lepsze formatowanie dla cmd.exe
         var processInfo = new ProcessStartInfo
         {
-            FileName = "cmd.exe",
-            Arguments = $"/c start \"\" {FormatCommandForExecution(exePath, arguments)}",
-            UseShellExecute = false,
-            CreateNoWindow = true
+            FileName = exePath,
+            Arguments = arguments,
+            UseShellExecute = true,  // Zmiana na true dla lepszej kompatybilności
+            CreateNoWindow = false
         };
+
+        // Alternatywne podejście dla plików exe
+        if (exePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            processInfo.UseShellExecute = false;
+            processInfo.CreateNoWindow = true;
+        }
 
         using var process = Process.Start(processInfo);
         return true;
@@ -154,102 +78,43 @@ csharpprivate bool ExecuteCommand(string commandCode)
         return false;
     }
 }
-
-private static (string exePath, string arguments) ParseCommand(string command)
+3. CommandsManager.cs - Domyślne komendy
+Problem: Domyślne komendy mogą zawierać ścieżki ze spacjami.
+Plik: CommandsManager.cs
+Funkcja: GetDefaultCommands
+csharpprivate List<CommandEntry> GetDefaultCommands()
 {
-    if (command.StartsWith("\""))
+    return new List<CommandEntry>
     {
-        int endQuote = command.IndexOf('"', 1);
-        if (endQuote > 0)
-        {
-            string path = command.Substring(1, endQuote - 1);
-            string args = command.Length > endQuote + 1 ? command.Substring(endQuote + 1).TrimStart() : "";
-            return (path, args);
-        }
+        new CommandEntry("notepad", "notepad.exe", "Uruchom Notatnik"),
+        new CommandEntry("calc", "calc.exe", "Uruchom Kalkulator"),
+        new CommandEntry("cmd", "cmd.exe", "Uruchom Wiersz Poleceń"),
+        new CommandEntry("explorer", "explorer.exe", "Uruchom Eksplorator plików"),
+        new CommandEntry("paint", "mspaint.exe", "Uruchom Paint")
+    };
+}
+4. SettingsControl.xaml.cs - Walidacja ścieżek
+Problem: Brak walidacji ścieżek ze spacjami podczas dodawania komend.
+Plik: SettingsControl.xaml.cs
+Funkcja: TryCreateValidCommand
+csharpprivate bool TryCreateValidCommand(out CommandEntry command, out string errorMessage)
+{
+    var key = EditKey?.Trim() ?? string.Empty;
+    var code = EditCode?.Trim() ?? string.Empty;
+    var info = EditInfo?.Trim() ?? string.Empty;
+
+    // Automatyczne dodanie cudzysłowów dla ścieżek ze spacjami
+    if (!string.IsNullOrEmpty(code) &&
+        code.Contains(" ") &&
+        !code.StartsWith("\"") &&
+        (code.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+         code.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) ||
+         Path.IsPathRooted(code)))
+    {
+        code = $"\"{code}\"";
     }
 
-    int spaceIndex = command.IndexOf(' ');
-    return spaceIndex > 0
-        ? (command.Substring(0, spaceIndex), command.Substring(spaceIndex + 1))
-        : (command, "");
-}
-
-private static string FormatCommandForExecution(string exePath, string arguments)
-{
-    string formattedPath = exePath.Contains(" ") && !exePath.StartsWith("\"")
-        ? $"\"{exePath}\""
-        : exePath;
-
-    return string.IsNullOrEmpty(arguments) ? formattedPath : $"{formattedPath} {arguments}";
-}
-
-private static bool ShouldValidateFile(string exePath)
-{
-    return Path.IsPathRooted(exePath) &&
-           !IsSystemCommand(exePath);
-}
-
-private static bool IsSystemCommand(string exePath)
-{
-    return exePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
-           !Path.IsPathRooted(exePath) &&
-           !exePath.Contains('\\') &&
-           !exePath.Contains('/');
-}
-3. Usunięcie nadmiarowego kodu
-Usunięcie SettingsViewModel.cs
-Plik SettingsViewModel.cs jest duplikacją logiki z SettingsControl.xaml.cs. Można go całkowicie usunąć, ponieważ SettingsControl już implementuje wzorzec MVVM.
-4. CommandEntry.cs - Uproszczenie walidacji
-Optymalizacja klasy CommandEntry
-csharppublic class CommandEntry
-{
-    [JsonPropertyName("key")]
-    [Required(ErrorMessage = "Klucz jest wymagany")]
-    public string Key { get; set; } = string.Empty;
-
-    [JsonPropertyName("code")]
-    [Required(ErrorMessage = "Kod jest wymagany")]
-    public string Code { get; set; } = string.Empty;
-
-    [JsonPropertyName("info")]
-    public string Info { get; set; } = string.Empty;
-
-    public CommandEntry() { }
-
-    public CommandEntry(string key, string code, string info = "")
-    {
-        Key = key?.Trim() ?? string.Empty;
-        Code = code?.Trim() ?? string.Empty;
-        Info = info?.Trim() ?? string.Empty;
-    }
-
-    // Uproszczona walidacja używająca wbudowanych atrybutów
-    public bool IsValid() => !string.IsNullOrWhiteSpace(Key) && !string.IsNullOrWhiteSpace(Code);
-}
-5. SettingsControl.xaml.cs - Redukcja duplikacji kodu
-Optymalizacja metod walidacji i zarządzania
-csharpprivate void AddButton_Click(object sender, RoutedEventArgs e)
-{
-    if (!TryCreateValidCommand(out var newCommand, out var errorMessage))
-    {
-        ShowError(errorMessage);
-        return;
-    }
-
-    if (CommandExists(newCommand.Key))
-    {
-        ShowError($"Komenda o kluczu '{newCommand.Key}' już istnieje!");
-        return;
-    }
-
-    _commandsManager.AddCommand(newCommand);
-    Commands.Add(newCommand);
-    ClearFields();
-}
-
-private bool TryCreateValidCommand(out CommandEntry command, out string errorMessage)
-{
-    command = new CommandEntry(EditKey, EditCode, EditInfo);
+    command = new CommandEntry(key, code, info);
     errorMessage = "";
 
     if (!command.IsValid())
@@ -259,20 +124,44 @@ private bool TryCreateValidCommand(out CommandEntry command, out string errorMes
         return false;
     }
 
+    // Dodatkowa walidacja dla plików
+    if (Path.IsPathRooted(command.Code.Trim('"')))
+    {
+        var filePath = command.Code.Trim('"');
+        if (!File.Exists(filePath))
+        {
+            errorMessage = $"Plik nie istnieje: {filePath}";
+            return false;
+        }
+    }
+
     return true;
 }
+5. Main.cs - Pomocnicze funkcje
+Nowa funkcja: Dodanie funkcji pomocniczej do lepszego zarządzania ścieżkami.
+Plik: Main.cs
+csharpprivate static string EscapePathForExecution(string path)
+{
+    if (string.IsNullOrEmpty(path)) return path;
 
-private bool CommandExists(string key) =>
-    Commands.Any(c => c.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+    // Usuń istniejące cudzysłowy i dodaj nowe jeśli ścieżka zawiera spacje
+    path = path.Trim('"');
+    return path.Contains(" ") ? $"\"{path}\"" : path;
+}
 
-private void ShowError(string message) =>
-    MessageBox.Show(message, "Błąd", MessageBoxButton.OK, MessageBoxImage.Warning);
-Podsumowanie głównych korzyści:
+private static bool IsExecutableFile(string path)
+{
+    if (string.IsNullOrEmpty(path)) return false;
 
-Usunięcie duplikacji - Eliminacja SettingsViewModel.cs
-Lepsza obsługa błędów - Retry mechanizm dla zapisu plików
-Optymalizacja wyszukiwania - Efektywniejsze filtrowanie wyników
-Uproszczenie kodu - Wydzielenie pomocniczych metod
-Poprawa czytelności - Bardziej zwięzły i zrozumiały kod
-Atomowe operacje - Bezpieczniejszy zapis plików
-Lepsze używanie LINQ - Bardziej funkcyjny styl programowania
+    var extension = Path.GetExtension(path).ToLowerInvariant();
+    return extension == ".exe" || extension == ".bat" || extension == ".cmd" || extension == ".lnk";
+}
+Podsumowanie zmian
+
+Poprawione parsowanie ścieżek - Lepsze rozpoznawanie ścieżek ze spacjami
+Zmienione wykonywanie procesów - Używanie UseShellExecute = true dla lepszej kompatybilności
+Automatyczne dodawanie cudzysłowów - W interfejsie ustawień
+Walidacja plików - Sprawdzanie czy plik istnieje przed dodaniem
+Lepsze domyślne komendy - Używanie komend systemowych bez pełnych ścieżek
+
+Te zmiany powinny rozwiązać problem z wykonywaniem komend zawierających ścieżki ze spacjami, szczególnie dla Cinema 4D i innych aplikacji z podobnymi ścieżkami.

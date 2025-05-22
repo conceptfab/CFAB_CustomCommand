@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using Flow.Launcher.Plugin;
 using System.Linq;
+using System.IO;
 
 namespace Flow.Plugin.CommandLauncher
 {
@@ -123,7 +124,22 @@ namespace Flow.Plugin.CommandLauncher
 
         private bool TryCreateValidCommand(out CommandEntry command, out string errorMessage)
         {
-            command = new CommandEntry(EditKey, EditCode, EditInfo);
+            var key = EditKey?.Trim() ?? string.Empty;
+            var code = EditCode?.Trim() ?? string.Empty;
+            var info = EditInfo?.Trim() ?? string.Empty;
+
+            // Automatyczne dodanie cudzysłowów dla ścieżek ze spacjami
+            if (!string.IsNullOrEmpty(code) &&
+                code.Contains(" ") &&
+                !code.StartsWith("\"") &&
+                (code.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+                 code.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) ||
+                 Path.IsPathRooted(code)))
+            {
+                code = $"\"{code}\"";
+            }
+
+            command = new CommandEntry(key, code, info);
             errorMessage = "";
 
             if (!command.IsValid())
@@ -131,6 +147,17 @@ namespace Flow.Plugin.CommandLauncher
                 errorMessage = string.IsNullOrWhiteSpace(command.Key) ?
                     "Klucz jest wymagany!" : "Komenda/Ścieżka jest wymagana!";
                 return false;
+            }
+
+            // Dodatkowa walidacja dla plików
+            if (Path.IsPathRooted(command.Code.Trim('"')))
+            {
+                var filePath = command.Code.Trim('"');
+                if (!File.Exists(filePath))
+                {
+                    errorMessage = $"Plik nie istnieje: {filePath}";
+                    return false;
+                }
             }
 
             return true;

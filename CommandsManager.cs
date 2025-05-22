@@ -108,12 +108,13 @@ namespace Flow.Plugin.CommandLauncher
 
         private List<CommandEntry> GetDefaultCommands()
         {
-            // Przykładowe domyślne komendy
             return new List<CommandEntry>
             {
-                new CommandEntry("1", "notepad.exe", "Uruchom Notatnik"),
+                new CommandEntry("notepad", "notepad.exe", "Uruchom Notatnik"),
                 new CommandEntry("calc", "calc.exe", "Uruchom Kalkulator"),
-                new CommandEntry("cmd", "cmd.exe", "Uruchom Wiersz Poleceń")
+                new CommandEntry("cmd", "cmd.exe", "Uruchom Wiersz Poleceń"),
+                new CommandEntry("explorer", "explorer.exe", "Uruchom Eksplorator plików"),
+                new CommandEntry("paint", "mspaint.exe", "Uruchom Paint")
             };
         }
 

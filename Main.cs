@@ -80,18 +80,28 @@ namespace Flow.Plugin.CommandLauncher
 
                 var (exePath, arguments) = ParseCommand(commandCode);
 
-                if (ShouldValidateFile(exePath) && !File.Exists(exePath))
+                // Sprawdź czy plik istnieje przed dodaniem cudzysłowów
+                string cleanPath = exePath.Trim('"');
+                if (ShouldValidateFile(cleanPath) && !File.Exists(cleanPath))
                 {
-                    throw new FileNotFoundException($"Nie można znaleźć pliku: {exePath}");
+                    throw new FileNotFoundException($"Nie można znaleźć pliku: {cleanPath}");
                 }
 
+                // Lepsze formatowanie dla cmd.exe
                 var processInfo = new ProcessStartInfo
                 {
-                    FileName = "cmd.exe",
-                    Arguments = $"/c start \"\" {FormatCommandForExecution(exePath, arguments)}",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
+                    FileName = cleanPath,
+                    Arguments = arguments,
+                    UseShellExecute = true,  // Zmiana na true dla lepszej kompatybilności
+                    CreateNoWindow = false
                 };
+
+                // Alternatywne podejście dla plików exe
+                if (cleanPath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    processInfo.UseShellExecute = false;
+                    processInfo.CreateNoWindow = true;
+                }
 
                 using var process = Process.Start(processInfo);
                 return true;
@@ -120,13 +130,27 @@ namespace Flow.Plugin.CommandLauncher
                 }
             }
 
-            // Sprawdź czy ścieżka zawiera spacje i czy jest to ścieżka do pliku
-            if (command.Contains(" ") && (command.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
-                                        command.EndsWith(".bat", StringComparison.OrdinalIgnoreCase) ||
-                                        command.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase)))
+            // Dla ścieżek bezwzględnych (z pełną ścieżką)
+            if (Path.IsPathRooted(command))
             {
+                // Jeśli ścieżka kończy się na .exe, .bat lub .cmd, traktuj całość jako ścieżkę
+                if (command.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+                    command.EndsWith(".bat", StringComparison.OrdinalIgnoreCase) ||
+                    command.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase))
+                {
+                    return (command, "");
+                }
+
+                // W przeciwnym razie szukaj ostatniej spacji przed rozszerzeniem
                 int lastSpace = command.LastIndexOf(' ');
-                return (command.Substring(0, lastSpace), command.Substring(lastSpace + 1));
+                if (lastSpace > 0)
+                {
+                    string potentialPath = command.Substring(0, lastSpace);
+                    if (File.Exists(potentialPath))
+                    {
+                        return (potentialPath, command.Substring(lastSpace + 1));
+                    }
+                }
             }
 
             // Standardowe przetwarzanie
@@ -136,13 +160,21 @@ namespace Flow.Plugin.CommandLauncher
                 : (command, "");
         }
 
-        private static string FormatCommandForExecution(string exePath, string arguments)
+        private static string EscapePathForExecution(string path)
         {
-            string formattedPath = exePath.Contains(" ") && !exePath.StartsWith("\"")
-                ? $"\"{exePath}\""
-                : exePath;
+            if (string.IsNullOrEmpty(path)) return path;
 
-            return string.IsNullOrEmpty(arguments) ? formattedPath : $"{formattedPath} {arguments}";
+            // Usuń istniejące cudzysłowy i dodaj nowe jeśli ścieżka zawiera spacje
+            path = path.Trim('"');
+            return path.Contains(" ") ? $"\"{path}\"" : path;
+        }
+
+        private static bool IsExecutableFile(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+
+            var extension = Path.GetExtension(path).ToLowerInvariant();
+            return extension == ".exe" || extension == ".bat" || extension == ".cmd" || extension == ".lnk";
         }
 
         private static bool ShouldValidateFile(string exePath)
