@@ -120,6 +120,7 @@ namespace Flow.Plugin.CommandLauncher
             _commandsManager.AddCommand(newCommand);
             Commands.Add(newCommand);
             ClearFields();
+            _commandsManager.LoadCommands();
         }
 
         private bool TryCreateValidCommand(out CommandEntry command, out string errorMessage)
@@ -187,6 +188,7 @@ namespace Flow.Plugin.CommandLauncher
                 Commands[index] = updatedCommand;
             }
             ClearFields();
+            _commandsManager.LoadCommands();
         }
 
         private void RemoveButton_Click(object sender, RoutedEventArgs e)
@@ -204,6 +206,7 @@ namespace Flow.Plugin.CommandLauncher
                     _commandsManager.RemoveCommand(SelectedCommand);
                     Commands.Remove(SelectedCommand);
                     ClearFields();
+                    _commandsManager.LoadCommands();
                 }
             }
         }

@@ -62,11 +62,27 @@ namespace Flow.Plugin.CommandLauncher
 
         private Result CreateResult(CommandEntry cmd)
         {
+            string iconPath = _iconPath; // Domyślnie używamy ikony wtyczki
+
+            // Próbujemy pobrać ikonę z pliku wykonywalnego
+            try
+            {
+                string cleanPath = cmd.Code.Trim('"');
+                if (File.Exists(cleanPath))
+                {
+                    iconPath = cleanPath; // Flow Launcher automatycznie pobierze ikonę z pliku
+                }
+            }
+            catch (Exception ex)
+            {
+                _context.API.LogDebug("CreateResult", $"Nie można pobrać ikony z pliku: {ex.Message}");
+            }
+
             return new Result
             {
                 Title = $"{cmd.Info} ({cmd.Key})",
                 SubTitle = $"Uruchom: {cmd.Code}",
-                IcoPath = _iconPath,
+                IcoPath = iconPath,
                 Action = _ => ExecuteCommand(cmd.Code)
             };
         }
